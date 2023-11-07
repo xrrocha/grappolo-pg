@@ -117,11 +117,36 @@ UPDATE profiles_by_distance p
 SET profile_medoids = ARRAY(
         SELECT (t.cluster_element).word
         FROM (SELECT UNNEST(profile_cluster) AS cluster_element) AS t
-        WHERE (t.cluster_element).distance = (p.profile_cluster[1]).distance);
+        WHERE (t.cluster_element).distance = (p.profile_cluster[1]).distance
+        ORDER BY 1);
 
 CREATE TABLE clusters_by_distance AS
 SELECT distance, profile_medoids, ARRAY_AGG(word) AS cluster
 FROM profiles_by_distance
-WHERE distance BETWEEN 0.33 AND 0.4
 GROUP BY distance, profile_medoids
 ORDER BY distance, ARRAY_LENGTH(ARRAY_AGG(word), 1) DESC;
+
+
+
+ALTER TABLE clusters_by_distance
+    ADD COLUMN cluster_elements cluster_element[];
+UPDATE clusters_by_distance
+SET cluster_elements = ARRAY(SELECT CAST(ROW (first.word, AVG(scores.length_normalized_distance), words.count) AS cluster_element)
+                             FROM (SELECT unnest(cluster) AS word) AS first,
+                                  (SELECT unnest(cluster) AS word) AS second,
+                                  scores,
+                                  words
+                             WHERE scores.first = first.word
+                               AND scores.second = second.word
+                               AND words.word = first.word
+                             GROUP BY first.word, words.count
+                             ORDER BY AVG(scores.length_normalized_distance), words.count DESC, first.word);
+
+ALTER TABLE clusters_by_distance
+    ADD COLUMN cluster_medoids VARCHAR[];
+UPDATE clusters_by_distance c
+SET cluster_medoids = ARRAY(
+        SELECT (t.cluster_element).word
+        FROM (SELECT UNNEST(cluster_elements) AS cluster_element) AS t
+        WHERE (t.cluster_element).distance = (c.cluster_elements[1]).distance
+        ORDER BY 1);
